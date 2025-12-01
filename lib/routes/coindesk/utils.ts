@@ -1,11 +1,11 @@
 import { load } from 'cheerio';
 
-import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
 export const parseItem = async (item) => {
-    const response = await ofetch(item.link);
-    const $ = load(response);
+    const response = await fetch(item.link);
+    const html = await response.text();
+    const $ = load(html);
     const ldJson = JSON.parse($('script[type="application/ld+json"]').text());
 
     $('.article-ad, #strategy-rules-player-wrapper, [data-module-name="newsletter-article-sign-up-module"], div.flex.flex-col.gap-2').remove();

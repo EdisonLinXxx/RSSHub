@@ -30,8 +30,12 @@ export const route: Route = {
 };
 
 async function handler(): Promise<Data> {
-    const rssUrl = 'https://feeds.feedburner.com/Coindesk';
-    const feed = await parser.parseURL(rssUrl);
+    const rssUrl = 'https://www.coindesk.com/arc/outboundfeeds/rss';
+    const res = await fetch(rssUrl);
+    const body = await res.text();
+    // Remove potential BOM/leading junk to avoid "Non-whitespace before first tag"
+    const cleaned = body.replace(/^[\uFEFF]+/, '').trimStart();
+    const feed = await parser.parseString(cleaned);
 
     const items = await Promise.all(feed.items.map((item) => cache.tryGet(item.link, () => parseItem(item))));
 
