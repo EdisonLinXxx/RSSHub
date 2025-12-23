@@ -11,6 +11,18 @@ import { getPuppeteerPage } from '@/utils/puppeteer';
 const rootUrl = 'https://cn.investing.com';
 const newsUrl = `${rootUrl}/news/most-popular-news`;
 const isChallengePage = (content: string) => /Just a moment\.\.\.|cf_chl_opt|challenge-platform/i.test(content);
+const fetchWithRealBrowser = async (url: string, selector: string) => {
+    if (!config.puppeteerRealBrowserService) {
+        return '';
+    }
+    try {
+        const response = await fetch(`${config.puppeteerRealBrowserService}?url=${encodeURIComponent(url)}&selector=${encodeURIComponent(selector)}`);
+        const json = await response.json();
+        return (json.data?.at(0) || '') as string;
+    } catch {
+        return '';
+    }
+};
 const cookieDomain = new URL(rootUrl).hostname;
 const cookieKeysToSkip = new Set(['path', 'domain', 'expires', 'max-age', 'secure', 'httponly', 'samesite', 'priority']);
 const parseCookieHeader = (cookieHeader: string) =>
@@ -93,6 +105,7 @@ async function handler(ctx) {
     logger.info(`investing/most-popular-news cookie source=${cookieSource}, length=${cookie?.length ?? 0}, prefix=${cookie ? cookie.slice(0, 32) : 'none'}, puppeteer=${usePuppeteer}`);
 
     const fetchListHtml = async () => {
+        let listHtml = '';
         try {
             const response = await got.get(newsUrl, {
                 headers: {
@@ -101,11 +114,11 @@ async function handler(ctx) {
                 },
                 retry: 0,
             });
-            const html = typeof response.data === 'string' ? response.data : response.data.toString('utf-8');
-            if (!html || isChallengePage(html)) {
+            listHtml = typeof response.data === 'string' ? response.data : response.data.toString('utf-8');
+            if (!listHtml || isChallengePage(listHtml)) {
                 throw new Error('Blocked by Cloudflare');
             }
-            return html;
+            return listHtml;
         } catch (error) {
             if (!usePuppeteer) {
                 throw error;
@@ -130,11 +143,20 @@ async function handler(ctx) {
                     waitUntil: 'domcontentloaded',
                 },
             });
-            const html = await pageContext.page.content();
-            return html;
+            listHtml = await pageContext.page.content();
         } finally {
             await pageContext?.destory?.();
         }
+
+        if ((!listHtml || isChallengePage(listHtml)) && config.puppeteerRealBrowserService) {
+            logger.info('investing/most-popular-news using real-browser service for list page');
+            const html = await fetchWithRealBrowser(newsUrl, '.largeTitle, #leftColumn, article');
+            if (html) {
+                return html;
+            }
+        }
+
+        return listHtml;
     };
 
     const listHtml = await fetchListHtml();
