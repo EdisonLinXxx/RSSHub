@@ -5,6 +5,7 @@ import InvalidParameterError from '@/errors/types/invalid-parameter';
 import type { Route } from '@/types';
 import { ViewType } from '@/types';
 import cache from '@/utils/cache';
+import logger from '@/utils/logger';
 import { fallback, queryToBoolean } from '@/utils/readable-social';
 
 import { getUser, getUserWithCookie, renderNotesFulltext } from './util';
@@ -63,13 +64,15 @@ async function handler(ctx) {
     const routeParams = querystring.parse(ctx.req.param('routeParams'));
     const displayLivePhoto = !!fallback(undefined, queryToBoolean(routeParams.displayLivePhoto), false);
     const url = `https://www.xiaohongshu.com/user/profile/${userId}`;
-    const cookie = config.xiaohongshu.cookie;
+    const headerCookie = ctx.req.header('XIAOHONGSHU_COOKIE') || ctx.req.header('XIAOHONGSHU-COOKIE');
+    const cookie = headerCookie || config.xiaohongshu.cookie;
+    logger.info(`xiaohongshu/user header cookie length=${headerCookie?.length ?? 0}, prefix=${headerCookie ? headerCookie.slice(0, 32) : 'none'}`);
 
     if (cookie && category === 'notes') {
         try {
             const urlNotePrefix = 'https://www.xiaohongshu.com/explore';
-            const user = await getUserWithCookie(url);
-            const notes = await renderNotesFulltext(user.notes, urlNotePrefix, displayLivePhoto);
+            const user = await getUserWithCookie(url, cookie);
+            const notes = await renderNotesFulltext(user.notes, urlNotePrefix, displayLivePhoto, cookie);
             return {
                 title: `${user.userPageData.basicInfo.nickname} - 笔记 • 小红书 / RED`,
                 description: user.userPageData.basicInfo.desc,

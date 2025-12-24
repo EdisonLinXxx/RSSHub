@@ -124,7 +124,7 @@ const formatNote = (url, note) => ({
     updated: parseDate(note.lastUpdateTime, 'x'),
 });
 
-async function renderNotesFulltext(notes, urlPrex, displayLivePhoto) {
+async function renderNotesFulltext(notes, urlPrex, displayLivePhoto, cookie?: string) {
     const data: Array<{
         title: string;
         link: string;
@@ -138,7 +138,7 @@ async function renderNotesFulltext(notes, urlPrex, displayLivePhoto) {
         note.map(async ({ noteCard, id }) => {
             const link = `${urlPrex}/${id}`;
             const guid = `${urlPrex}/${noteCard.noteId}`;
-            const { title, description, pubDate, updated } = await getFullNote(link, displayLivePhoto);
+            const { title, description, pubDate, updated } = await getFullNote(link, displayLivePhoto, cookie);
             return {
                 title,
                 link,
@@ -154,10 +154,11 @@ async function renderNotesFulltext(notes, urlPrex, displayLivePhoto) {
     return data;
 }
 
-async function getFullNote(link, displayLivePhoto) {
+async function getFullNote(link, displayLivePhoto, cookie?: string) {
+    const resolvedCookie = cookie ?? config.xiaohongshu.cookie;
     const data = (await cache.tryGet(link, async () => {
         const res = await ofetch(link, {
-            headers: getHeaders(config.xiaohongshu.cookie),
+            headers: getHeaders(resolvedCookie),
         });
         const $ = load(res);
         const script = extractInitialState($);
@@ -242,10 +243,10 @@ async function getFullNote(link, displayLivePhoto) {
     return data;
 }
 
-async function getUserWithCookie(url: string) {
-    const cookie = config.xiaohongshu.cookie;
+async function getUserWithCookie(url: string, cookie?: string) {
+    const resolvedCookie = cookie ?? config.xiaohongshu.cookie;
     const res = await ofetch(url, {
-        headers: getHeaders(cookie),
+        headers: getHeaders(resolvedCookie),
     });
     const $ = load(res);
     const paths = $('#userPostedFeeds > section > div > a.cover.ld.mask').map((i, item) => item.attributes[3].value);
@@ -275,10 +276,10 @@ function extractInitialState($) {
     return script;
 }
 
-async function checkCookie() {
-    const cookie = config.xiaohongshu.cookie;
+async function checkCookie(cookie?: string) {
+    const resolvedCookie = cookie ?? config.xiaohongshu.cookie;
     const res = await ofetch('https://edith.xiaohongshu.com/api/sns/web/v2/user/me', {
-        headers: getHeaders(cookie),
+        headers: getHeaders(resolvedCookie),
     });
     return res.code === 0 && !!res.data.user_id;
 }
