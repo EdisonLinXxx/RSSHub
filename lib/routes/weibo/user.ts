@@ -5,11 +5,32 @@ import type { Route } from '@/types';
 import { ViewType } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
+import logger from '@/utils/logger';
 import { parseDate } from '@/utils/parse-date';
 import { fallback, queryToBoolean } from '@/utils/readable-social';
 import timezone from '@/utils/timezone';
 
 import weiboUtils from './utils';
+
+const getCookieFromUrlBase64 = (reqUrl: string) => {
+    const search = new URL(reqUrl, 'http://localhost').search;
+    const match = search.match(/[?&]vokecookie_b64=([^&]*)/);
+    if (!match) {
+        return;
+    }
+    const raw = match[1].replaceAll('+', ' ');
+    let encoded = raw;
+    try {
+        encoded = decodeURIComponent(raw);
+    } catch {
+        // keep raw
+    }
+    try {
+        return Buffer.from(encoded, 'base64').toString('utf8');
+    } catch {
+        return;
+    }
+};
 
 export const route: Route = {
     path: '/user/:uid/:routeParams?',
@@ -55,6 +76,11 @@ export const route: Route = {
 
 async function handler(ctx) {
     const uid = ctx.req.param('uid');
+    const cookieFromQuery = getCookieFromUrlBase64(ctx.req.url) ?? ctx.req.query('vokecookie_b64');
+    const cookieSource = cookieFromQuery ? 'query' : config.weibo.cookies ? 'config' : 'none';
+    const cookiePrefix = cookieFromQuery ? cookieFromQuery.slice(0, 32) : config.weibo.cookies ? config.weibo.cookies.slice(0, 32) : 'none';
+    logger.info(`weibo/user cookie source=${cookieSource}, length=${cookieFromQuery?.length ?? config.weibo.cookies?.length ?? 0}, prefix=${cookiePrefix}`);
+    const withCookies = (callback: (cookies: string) => Promise<any>) => (cookieFromQuery ? callback(cookieFromQuery) : weiboUtils.tryWithCookies(callback));
     let displayVideo = '1';
     let displayArticle = '0';
     let displayComments = '0';
@@ -73,7 +99,7 @@ async function handler(ctx) {
         }
     }
 
-    const containerData = await weiboUtils.tryWithCookies((cookies) =>
+    const containerData = await withCookies((cookies) =>
         cache.tryGet(
             `weibo:user:index:${uid}`,
             async () => {
@@ -98,7 +124,7 @@ async function handler(ctx) {
     const profileImageUrl = containerData.data.userInfo.profile_image_url;
     const containerId = containerData.data.tabsInfo.tabs.find((item) => item.tab_type === 'weibo').containerid;
 
-    const cards = await weiboUtils.tryWithCookies((cookies) =>
+    const cards = await withCookies((cookies) =>
         cache.tryGet(
             `weibo:user:cards:${uid}:${containerId}`,
             async () => {

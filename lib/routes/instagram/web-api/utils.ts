@@ -69,7 +69,16 @@ const getUserInfo = async (username, cookieJar) => {
                 throw new ConfigNotFoundError('Invalid cookie');
             }
 
-            webProfileInfo = response._data.data.user;
+            const responseData = response._data;
+            const responseUser = responseData?.data?.user;
+            if (!responseUser) {
+                if (responseData?.message === 'login_required' || responseData?.status === 'fail') {
+                    throw new ConfigNotFoundError('Invalid cookie');
+                }
+                throw new ConfigNotFoundError('Instagram API response missing user data');
+            }
+
+            webProfileInfo = responseUser;
             id = webProfileInfo.id;
 
             await cache.set(`instagram:getIdByUsername:${username}`, id, 31_536_000); // 1 year since it will never change
@@ -133,24 +142,25 @@ const getTagsFeed = (tag, cookieJar) =>
         false
     );
 
-const renderGuestItems = (items) => {
-    const renderVideo = (node, summary) =>
-        art(path.join(__dirname, '../templates/video.art'), {
-            summary,
-            image: node.display_url,
-            video: {
-                url: node.video_url,
-                height: node.dimensions.height,
-                width: node.dimensions.width,
-            },
-        });
-    const renderImages = (node, summary) =>
-        art(path.join(__dirname, '../templates/images.art'), {
-            summary,
-            images: [{ url: node.display_url, height: node.dimensions.height, width: node.dimensions.width }],
-        });
+const renderVideo = (node, summary) =>
+    art(path.join(__dirname, '../templates/video.art'), {
+        summary,
+        image: node.display_url,
+        video: {
+            url: node.video_url,
+            height: node.dimensions.height,
+            width: node.dimensions.width,
+        },
+    });
 
-    return items.map(({ node }) => {
+const renderImages = (node, summary) =>
+    art(path.join(__dirname, '../templates/images.art'), {
+        summary,
+        images: [{ url: node.display_url, height: node.dimensions.height, width: node.dimensions.width }],
+    });
+
+const renderGuestItems = (items) =>
+    items.map(({ node }) => {
         const type = node.__typename;
         const summary = node.edge_media_to_caption.edges[0]?.node.text ?? '';
 
@@ -194,6 +204,5 @@ const renderGuestItems = (items) => {
             description,
         };
     });
-};
 
 export { baseUrl, checkLogin, COOKIE_URL, getTagsFeed, getUserFeedItems, getUserInfo, renderGuestItems };

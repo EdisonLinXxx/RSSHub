@@ -9,6 +9,26 @@ import cache from '@/utils/cache';
 import { renderItems } from '../common-utils';
 import { baseUrl, checkLogin, COOKIE_URL, getTagsFeed, getUserFeedItems, getUserInfo, renderGuestItems } from './utils';
 
+const getCookieFromUrlBase64 = (reqUrl: string) => {
+    const search = new URL(reqUrl, 'http://localhost').search;
+    const match = search.match(/[?&]vokecookie_b64=([^&]*)/);
+    if (!match) {
+        return;
+    }
+    const raw = match[1].replaceAll('+', ' ');
+    let encoded = raw;
+    try {
+        encoded = decodeURIComponent(raw);
+    } catch {
+        // keep raw
+    }
+    try {
+        return Buffer.from(encoded, 'base64').toString('utf8');
+    } catch {
+        return;
+    }
+};
+
 export const route: Route = {
     path: '/2/:category/:key',
     categories: ['social-media'],
@@ -41,12 +61,14 @@ async function handler(ctx) {
     // }
     const availableCategories = ['user', 'tags'];
     const { category, key } = ctx.req.param();
-    const { cookie } = config.instagram;
+    const cookieFromQuery = getCookieFromUrlBase64(ctx.req.url) ?? ctx.req.query('vokecookie_b64');
+    const cookie = cookieFromQuery ?? config.instagram?.cookie;
     if (!availableCategories.includes(category)) {
         throw new InvalidParameterError('Such feed is not supported.');
     }
 
-    let cookieJar = await cache.get('instagram:cookieJar');
+    const useCache = !cookieFromQuery;
+    let cookieJar = useCache ? await cache.get('instagram:cookieJar') : null;
     // const wwwClaimV2 = await cache.get('instagram:wwwClaimV2');
     const cacheMiss = !cookieJar;
 
@@ -57,7 +79,7 @@ async function handler(ctx) {
                 await cookieJar.setCookie(c, COOKIE_URL);
             }
         }
-    } else {
+    } else if (cookieJar) {
         cookieJar = CookieJar.fromJSON(cookieJar);
     }
 
@@ -87,7 +109,7 @@ async function handler(ctx) {
             break;
         }
         case 'tags': {
-            if (!config.instagram || !config.instagram.cookie) {
+            if (!cookie) {
                 throw new ConfigNotFoundError('Instagram RSS is disabled due to the lack of <a href="https://docs.rsshub.app/deploy/config#route-specific-configurations">relevant config</a>');
             }
             const tag = key;
@@ -109,7 +131,9 @@ async function handler(ctx) {
             break;
     }
 
-    await cache.set('instagram:cookieJar', cookieJar.toJSON(), 31_536_000);
+    if (useCache) {
+        await cache.set('instagram:cookieJar', cookieJar.toJSON(), 31_536_000);
+    }
 
     return {
         title: feedTitle,

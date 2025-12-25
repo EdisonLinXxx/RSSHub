@@ -1,9 +1,39 @@
+import { config } from '@/config';
 import type { Route } from '@/types';
 import { ViewType } from '@/types';
 import logger from '@/utils/logger';
 
 import api from './api';
+import mobileApi from './api/mobile-api/api';
+import webApi from './api/web-api/api';
 import utils from './utils';
+
+const decodeBase64Value = (value?: string) => {
+    if (!value) {
+        return;
+    }
+    try {
+        return Buffer.from(value, 'base64').toString('utf8');
+    } catch {
+        return;
+    }
+};
+
+const getBase64ParamFromUrl = (reqUrl: string, key: string) => {
+    const search = new URL(reqUrl, 'http://localhost').search;
+    const match = search.match(new RegExp(`[?&]${key}=([^&]*)`));
+    if (!match) {
+        return;
+    }
+    const raw = match[1].replaceAll('+', ' ');
+    let encoded = raw;
+    try {
+        encoded = decodeURIComponent(raw);
+    } catch {
+        // keep raw
+    }
+    return decodeBase64Value(encoded);
+};
 
 export const route: Route = {
     path: '/user/:id/:routeParams?',
@@ -57,17 +87,35 @@ export const route: Route = {
 };
 
 async function handler(ctx) {
+    const usernameFromQuery = getBase64ParamFromUrl(ctx.req.url, 'TWITTER_USERNAME_b64') ?? decodeBase64Value(ctx.req.query('TWITTER_USERNAME_b64'));
+    const passwordFromQuery = getBase64ParamFromUrl(ctx.req.url, 'TWITTER_PASSWORD_b64') ?? decodeBase64Value(ctx.req.query('TWITTER_PASSWORD_b64'));
+    const authTokenFromQuery = getBase64ParamFromUrl(ctx.req.url, 'TWITTER_AUTH_TOKEN_b64') ?? decodeBase64Value(ctx.req.query('TWITTER_AUTH_TOKEN_b64'));
+
+    if (usernameFromQuery || passwordFromQuery || authTokenFromQuery) {
+        if (usernameFromQuery) {
+            config.twitter.username = [usernameFromQuery];
+        }
+        if (passwordFromQuery) {
+            config.twitter.password = [passwordFromQuery];
+        }
+        if (authTokenFromQuery) {
+            config.twitter.authToken = [authTokenFromQuery];
+        }
+        logger.info(`twitter/user decoded query values: username=${usernameFromQuery ?? 'none'}, password=${passwordFromQuery ?? 'none'}, authToken=${authTokenFromQuery ?? 'none'}`);
+    }
+
     const id = ctx.req.param('id');
 
     // For compatibility
     const { count, include_replies, include_rts } = utils.parseRouteParams(ctx.req.param('routeParams'));
     const params = count ? { count } : {};
 
-    await api.init();
-    const userInfo = await api.getUser(id);
+    const activeApi = config.twitter.thirdPartyApi || config.twitter.authToken?.length ? webApi : config.twitter.username?.length && config.twitter.password?.length ? mobileApi : api;
+    await activeApi.init();
+    const userInfo = await activeApi.getUser(id);
     let data;
     try {
-        data = await (include_replies ? api.getUserTweetsAndReplies(id, params) : api.getUserTweets(id, params));
+        data = await (include_replies ? activeApi.getUserTweetsAndReplies(id, params) : activeApi.getUserTweets(id, params));
         if (!include_rts) {
             data = utils.excludeRetweet(data);
         }

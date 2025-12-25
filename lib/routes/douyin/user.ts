@@ -14,6 +14,26 @@ import { art } from '@/utils/render';
 import type { PostData } from './types';
 import { getOriginAvatar, proxyVideo, resolveUrl, templates } from './utils';
 
+const getCookieFromUrlBase64 = (reqUrl: string) => {
+    const search = new URL(reqUrl, 'http://localhost').search;
+    const match = search.match(/[?&]vokecookie_b64=([^&]*)/);
+    if (!match) {
+        return;
+    }
+    const raw = match[1].replaceAll('+', ' ');
+    let encoded = raw;
+    try {
+        encoded = decodeURIComponent(raw);
+    } catch {
+        // keep raw
+    }
+    try {
+        return Buffer.from(encoded, 'base64').toString('utf8');
+    } catch {
+        return;
+    }
+};
+
 export const route: Route = {
     path: '/user/:uid/:routeParams?',
     categories: ['social-media'],
@@ -44,8 +64,9 @@ async function handler(ctx) {
         throw new InvalidParameterError('Invalid UID. UID should start with <b>MS4wLjABAAAA</b>.');
     }
     const headerCookie = ctx.req.header('DOUYIN-COOKIES');
-    const cookie = headerCookie || config.douyin.cookies;
-    const cookieSource = headerCookie ? 'header' : config.douyin.cookies ? 'env' : 'none';
+    const cookieFromQuery = getCookieFromUrlBase64(ctx.req.url) ?? ctx.req.query('vokecookie_b64');
+    const cookie = cookieFromQuery || headerCookie || config.douyin.cookies;
+    const cookieSource = cookieFromQuery ? 'query' : headerCookie ? 'header' : config.douyin.cookies ? 'env' : 'none';
     logger.info(`Douyin cookie source=${cookieSource}, length=${cookie?.length ?? 0}, prefix=${cookie ? cookie.slice(0, 32) : 'none'}`);
     const routeParams = Object.fromEntries(new URLSearchParams(ctx.req.param('routeParams')));
     const embed = fallback(undefined, queryToBoolean(routeParams.embed), false); // embed video
